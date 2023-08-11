@@ -1,136 +1,125 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/subract/hetzplay/hetzner"
 )
 
-// Variables used for command line parameters
+// Bot parameters
 var (
-	discordToken string
-	hetznerToken string
+	GuildID      = flag.String("guild", "", "Guild ID. If not passed - bot registers commands globally")
+	BotToken     = flag.String("discord_token", "", "Discord bot access token")
+	HetznerToken = flag.String("hetzner_token", "", "Hetzner API token")
+	ServerID     = flag.Int64("server_id", 0, "Hetzner server ID")
+)
+
+var session *discordgo.Session
+var client *hcloud.Client
+
+var (
+	commands = []*discordgo.ApplicationCommand{
+		{
+			Name:        "start",
+			Description: "Start the Minecraft server",
+		},
+	}
+
+	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+		"start": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			// Reply to the user
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "I'll see what I can do.",
+				},
+			})
+
+			// List snapshots
+			hetzner.ListSnapshots(client)
+		},
+	}
 )
 
 func init() {
-
-	flag.StringVar(&discordToken, "d", "", "Discord bot token")
-	flag.StringVar(&hetznerToken, "a", "", "Hetzner API token")
 	flag.Parse()
+
+	// Authenticate the bot
+	var err error
+	session, err = discordgo.New("Bot " + *BotToken)
+	if err != nil {
+		log.Fatalf("Invalid bot parameters: %v", err)
+	}
+
+	// Add command handlers
+	session.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+			h(s, i)
+		}
+	})
+
+	// Add ready handler
+	session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
+	})
+
+	// Create Hetzner client
+	client = hcloud.NewClient(hcloud.WithToken(*HetznerToken))
 }
 
 func main() {
 
-	// Create a new Discord session using the provided bot token.
-	dg, err := discordgo.New("Bot " + discordToken)
+	// Check if first run
+	if hetzner.ListSnapshots(client) == nil {
+		fmt.Println("It looks like this is your first time using hetzplay on this server.")
+	}
+
+	// Connect the bot session
+	err := session.Open()
 	if err != nil {
-		fmt.Println("error creating Discord session,", err)
-		return
+		log.Fatalf("Cannot open the session: %v", err)
 	}
 
-	// Register the messageCreate func as a callback for MessageCreate events.
-	dg.AddHandler(messageCreate)
-
-	// Receive events for incoming guild messages and DMs
-	dg.Identify.Intents = discordgo.IntentsGuildMessages + discordgo.IntentDirectMessages
-
-	// Open a websocket connection to Discord and begin listening.
-	err = dg.Open()
-	if err != nil {
-		fmt.Println("error opening connection,", err)
-		return
-	}
-
-	// Wait here until CTRL-C or other term signal is received.
-	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
-
-	// Cleanly close down the Discord session.
-	dg.Close()
-}
-
-// Handle incoming messages
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	client := hcloud.NewClient(hcloud.WithToken(hetznerToken))
-
-	// Ignore all messages created by the bot itself
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
-	if m.Content == "Yo bot! Put a round into dat server!" || m.Content == "off" {
-		s.ChannelMessageSend(m.ChannelID, "You got it, boss.")
-		stopServer(client)
-		s.ChannelMessageSend(m.ChannelID, "Server's sleeping with the fishes.")
-	}
-
-	if m.Content == "Wait! Not _that_ server!" || m.Content == "on" {
-		s.ChannelMessageSend(m.ChannelID, "Oh shit, gimme a sec")
-		startServer(client)
-		s.ChannelMessageSend(m.ChannelID, "phew, close one")
-	}
-}
-
-// Stops a server
-func stopServer(client *hcloud.Client) {
-	server, _, err := client.Server.GetByName(context.Background(), "games1")
-	if err != nil {
-		log.Fatalf("error retrieving server: %s\n", err)
-	}
-	if server == nil {
-		fmt.Println("Server not found")
-	}
-
-	_, _, err = client.Server.Shutdown(context.Background(), server)
-
-	if err != nil {
-		log.Fatalf("error shutting down server: %s\n", err)
-	}
-
-	// Wait for server to complete shutdown
-	waitForServerStatus(client, "off")
-
-}
-
-// Starts a server
-func startServer(client *hcloud.Client) {
-	server, _, err := client.Server.GetByName(context.Background(), "games1")
-	if err != nil {
-		log.Fatalf("error retrieving server: %s\n", err)
-	}
-	if server == nil {
-		fmt.Println("Server not found")
-	}
-
-	_, _, err = client.Server.Poweron(context.Background(), server)
-
-	if err != nil {
-		log.Fatalf("error powering on server: %s\n", err)
-	}
-
-	waitForServerStatus(client, "running")
-}
-
-// waitForServerStatus waits until a server has a particular status
-// It checks every two seconds, with a built-in timeout of one minute
-func waitForServerStatus(client *hcloud.Client, targetStatus string) {
-	for i := 0; i < 30; i++ {
-		time.Sleep(time.Duration(2 * time.Second))
-		server, _, _ := client.Server.GetByName(context.Background(), "games1")
-
-		fmt.Println("Server is", server.Status)
-		if string(server.Status) == targetStatus {
-			break
+	// Add commands to bot session
+	log.Println("Adding commands...")
+	for _, v := range commands {
+		_, err := session.ApplicationCommandCreate(session.State.User.ID, *GuildID, v)
+		if err != nil {
+			log.Panicf("Cannot create '%v' command: %v", v.Name, err)
 		}
 	}
+
+	// Ensure the bot session is closed when done
+	defer session.Close()
+
+	// Catch signals
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)    // stop on ctrl-C
+	signal.Notify(stop, syscall.SIGTERM) // stop on docker stop
+	log.Println("Press Ctrl+C to exit")
+	<-stop
+
+	// Remove all registered commands
+	log.Println("Removing commands...")
+
+	registeredCommands, err := session.ApplicationCommands(session.State.User.ID, *GuildID)
+	if err != nil {
+		log.Fatalf("Could not fetch registered commands: %v", err)
+	}
+
+	for _, v := range registeredCommands {
+		err := session.ApplicationCommandDelete(session.State.User.ID, *GuildID, v.ID)
+		if err != nil {
+			log.Panicf("Cannot delete '%v' command: %v", v.Name, err)
+		}
+	}
+
+	log.Println("Gracefully shutting down.")
 }

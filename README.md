@@ -4,7 +4,7 @@ This repository is currently a work in progress. Below is a vision of what it ma
 
 ---
 
-`hetzplay` makes it easy to run a Minecraft server in Hetzner while only **paying for the time it's used**. For servers used only part-time, this can cut the cost of running a powerful server down significantly -- **~87%** for a server used **15 hours per week** - see [the math](#example-cost-savings)
+`hetzplay` makes it easy to run a Minecraft server in Hetzner while only **paying for the time it's used**. For servers used only part-time, this can cut the cost of running a powerful server down significantly -- **~87%** for a server used **15 hours per week** - see [the math](#example-cost-comparison)
 
 ## How it works
 
@@ -50,8 +50,6 @@ Total: **€2.88/mo ($3.16/mo)**
 
 **Savings: ~87%**
 
-Even if you add in the cost of a separate server to run `hetzplay` itself, 
-
 ## Prerequisites
 
 - A Hetzner server that starts a Minecraft server on boot. See [dbrennand/mc-hetzner](https://github.com/dbrennand/mc-hetzner) for an easy way to provision one.
@@ -83,6 +81,7 @@ You can also configure the following, but you likely won't need to. The defaults
 
 - Support other game servers.
   - It'd need a way to query the active player count.
+    - If the server can itself detect the player count, it could reach out to `hetzplay` via webhook and ask to be stopped
   - Alternatively, it could require the stopping the server manually via Discord, and periodically remind the user who started it to kindly shut it down.
 - Notify when server starts/stops via webhooks.
   - Also notify on a configurable duration - for example "Send a notification if the server has been running for over eight hours."
