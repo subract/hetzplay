@@ -67,7 +67,7 @@ Configure the following:
 - `mc_host` (`string`): hostname or IP address of the Minecraft server
 - `mc_port` (`int`, default `25565`): the port of the Minecraft server
 
-You can also configure the following, but you likely won't need to. The defaults are designed with Hetzner's billing model in mind to maximize cost savings:
+You can also configure the following, but you likely won't need to. The defaults are designed with Hetzner's billing model in mind to maximize cost savings.:
 
 - `min_runtime` (`int`,  minutes, default `50`): how long the server must run before being stopped
   - Because Hetzner [bills for a minimum of one hour](https://docs.hetzner.com/cloud/billing/faq#how-do-you-bill-your-servers) (and rounds up), the default value ensures a server that's started, but never used, is billed for only a single hour.
@@ -76,6 +76,12 @@ You can also configure the following, but you likely won't need to. The defaults
 - `min_idle_time` (`int`, minutes, default `5`): how long the server must be idle before it's stopped
 - `backup_snap_count` (`int`, default `1`): how many backup snapshots to keep, in addition to the current snapshot
   - It's recommended to keep at least one backup snapshot
+
+## First use
+
+- Ensure your Minecraft server is running
+- Run `hetzplay` with the appropriate configuration
+- `hetzplay` will create a snapshot of your server
 
 ## Potential future features
 
@@ -86,3 +92,4 @@ You can also configure the following, but you likely won't need to. The defaults
 - Notify when server starts/stops via webhooks.
   - Also notify on a configurable duration - for example "Send a notification if the server has been running for over eight hours."
 - Support alternative ways of interacting with `hetzplay` instead of Discord, like webhooks or [an ntfy topic](https://github.com/binwiederhier/ntfy)
+- Add a cost calculator that calculates how much you have saved by using `hetzplay`. It can do so by seeing how long the server has been run/not run.

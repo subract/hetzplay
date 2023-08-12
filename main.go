@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -10,19 +11,25 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/subract/hetzplay/handlers"
 	"github.com/subract/hetzplay/hetzner"
 )
 
+// TODO: figure out the proper way to do versioning
+var version string = "0.1.0"
+
 // Bot parameters
+// TODO: Migrate to env vars/conf file
 var (
 	GuildID      = flag.String("guild", "", "Guild ID. If not passed - bot registers commands globally")
 	BotToken     = flag.String("discord_token", "", "Discord bot access token")
 	HetznerToken = flag.String("hetzner_token", "", "Hetzner API token")
-	ServerID     = flag.Int64("server_id", 0, "Hetzner server ID")
+	ServerName   = flag.String("server", "", "Hetzner server name")
 )
 
 var session *discordgo.Session
 var client *hcloud.Client
+var server *hcloud.Server
 
 var (
 	commands = []*discordgo.ApplicationCommand{
@@ -33,22 +40,18 @@ var (
 	}
 
 	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		"start": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			// Reply to the user
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "I'll see what I can do.",
-				},
-			})
-
-			// List snapshots
-			hetzner.ListSnapshots(client)
-		},
+		// Need to pass the client and server name to the handler
+		// ChatGPT taught me to use a closure to do this, hope that's appropriate
+		"start": func() func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+				handlers.StartCommandHandler(s, i, client, *ServerName)
+			}
+		}(),
 	}
 )
 
 func init() {
+	// TODO: Validate args
 	flag.Parse()
 
 	// Authenticate the bot
@@ -71,18 +74,39 @@ func init() {
 	})
 
 	// Create Hetzner client
-	client = hcloud.NewClient(hcloud.WithToken(*HetznerToken))
+	client = hcloud.NewClient(hcloud.WithToken(*HetznerToken), hcloud.WithApplication("hetzplay", version))
 }
 
 func main() {
 
+	snaps, err := hetzner.ListSnapshots(client, *ServerName)
+	if err != nil {
+		log.Fatalf("Failed to list snapshots: %v", err)
+	}
+
 	// Check if first run
-	if hetzner.ListSnapshots(client) == nil {
-		fmt.Println("It looks like this is your first time using hetzplay on this server.")
+	if len(snaps) == 0 {
+		fmt.Println("It looks like this is your first time running Hetzplay.")
+
+		// Verify server exists
+		server, _, err = client.Server.GetByName(context.Background(), *ServerName)
+		if err != nil {
+			log.Fatalf("Failed to get server: %v", err)
+		}
+		if server == nil {
+			log.Fatal("The server must be running the first time hetzplay is executed.")
+		}
+
+		fmt.Print("Taking an initial snapshot of your server... ")
+		_, err := hetzner.TakeSnapshot(client, server, 0)
+		if err != nil {
+			log.Fatalf("Failed to create initial snapshot: %v", err)
+		}
+		fmt.Println("done.")
 	}
 
 	// Connect the bot session
-	err := session.Open()
+	err = session.Open()
 	if err != nil {
 		log.Fatalf("Cannot open the session: %v", err)
 	}
