@@ -21,34 +21,34 @@ var version string = "0.1.0"
 // Bot parameters
 // TODO: Migrate to env vars/conf file
 var (
-	GuildID      = flag.String("guild", "", "Guild ID. If not passed - bot registers commands globally")
-	BotToken     = flag.String("discord_token", "", "Discord bot access token")
-	HetznerToken = flag.String("hetzner_token", "", "Hetzner API token")
-	ServerName   = flag.String("server", "", "Hetzner server name")
+	GuildID         = flag.String("guild", "", "Guild ID. If not passed - bot registers commands globally")
+	BotToken        = flag.String("discord_token", "", "Discord bot access token")
+	HetznerToken    = flag.String("hetzner_token", "", "Hetzner API token")
+	ServerName      = flag.String("server", "", "Hetzner server name. Must be unique within project")
+	BackupSnapCount = flag.Uint("backup_snaps", 1, "How many backup snapshots to keep")
 )
 
 var session *discordgo.Session
 var client *hcloud.Client
 var server *hcloud.Server
 
-var (
-	commands = []*discordgo.ApplicationCommand{
-		{
-			Name:        "start",
-			Description: "Start the Minecraft server",
-		},
-	}
+var commands = []*discordgo.ApplicationCommand{
+	{
+		Name:        "start",
+		Description: "Start the Minecraft server",
+	},
+}
 
-	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-		// Need to pass the client and server name to the handler
-		// ChatGPT taught me to use a closure to do this, hope that's appropriate
-		"start": func() func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-				handlers.StartCommandHandler(s, i, client, *ServerName)
-			}
-		}(),
+// Define a closure to pass client/ServerName context to handler
+func startCommandWithContext() func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		handlers.StartCommandHandler(s, i, client, *ServerName)
 	}
-)
+}
+
+var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
+	"start": startCommandWithContext(),
+}
 
 func init() {
 	// TODO: Validate args
@@ -83,6 +83,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to list snapshots: %v", err)
 	}
+	// DEBUG: Print snaps
+	for _, snap := range snaps {
+		fmt.Println("Found snap", snap.Description, snap.Created, snap.ID)
+	}
 
 	// Check if first run
 	if len(snaps) == 0 {
@@ -104,6 +108,9 @@ func main() {
 		}
 		fmt.Println("done.")
 	}
+
+	// DEBUG: Prune snapshots
+	hetzner.PruneSnapshots(client, *ServerName, *BackupSnapCount)
 
 	// Connect the bot session
 	err = session.Open()

@@ -74,14 +74,14 @@ You can also configure the following, but you likely won't need to. The defaults
 - `max_runtime` (`int`, minutes, default `0`): how long before the server is stopped, regardless of player count—use `0` for unlimited maximum runtime.
 - `players_query_interval` (`int`, minutes, default `5`): how often to query the player count of the server, starting after `minimum_runtime` minutes
 - `min_idle_time` (`int`, minutes, default `5`): how long the server must be idle before it's stopped
-- `backup_snap_count` (`int`, default `1`): how many backup snapshots to keep, in addition to the current snapshot
+- `backup_snaps` (`int`, default `1`): how many backup snapshots to keep, in addition to the current snapshot
   - It's recommended to keep at least one backup snapshot
 
 ## First use
 
 - Ensure your Minecraft server is running
 - Run `hetzplay` with the appropriate configuration
-- `hetzplay` will create a snapshot of your server
+- `hetzplay` creates a snapshot of your server
 
 ## Potential future features
 
