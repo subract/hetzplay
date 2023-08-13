@@ -9,7 +9,7 @@ import (
 )
 
 // List hetzplay's snapshots for a named server.
-func ListSnapshots(client *hcloud.Client, serverName string) (snapshots []*hcloud.Image, err error) {
+func (p HetznerProvider) listSnapshots(serverName string) (snapshots []*hcloud.Image, err error) {
 	// Define selectors for snapshots hetzplay creates
 	selector := fmt.Sprintf("hetzplay_id, hetzplay_server_name==%s", serverName)
 	types := []hcloud.ImageType{hcloud.ImageTypeSnapshot}
@@ -24,15 +24,29 @@ func ListSnapshots(client *hcloud.Client, serverName string) (snapshots []*hclou
 	}
 
 	// Retrieve list of snapshots
-	snapshots, _, err = client.Image.List(context.Background(), opts)
+	p.log.Debugf("listing snapshots for %s", serverName)
+	snapshots, _, err = p.client.Image.List(context.Background(), opts)
+	for _, snapshot := range snapshots {
+		p.log.Debugf("found snap %s (%s)", snapshot.Description, snapshot.Created)
+	}
 
 	return
 }
 
 // Create a snapshot of a server.
-func TakeSnapshot(client *hcloud.Client, server *hcloud.Server) (snapshot hcloud.Image, err error) {
+func (p HetznerProvider) takeSnapshot(serverName string) (err error) {
+	// Get the server
+	server, err := p.getServer(serverName)
+	if err != nil {
+		return
+	}
+	if server == nil {
+		err = fmt.Errorf("server %s does not exist", serverName)
+		return
+	}
+
 	// Calculate ID of new snapshot
-	snapshots, err := ListSnapshots(client, server.Name)
+	snapshots, err := p.listSnapshots(serverName)
 	if err != nil {
 		return
 	}
@@ -54,42 +68,35 @@ func TakeSnapshot(client *hcloud.Client, server *hcloud.Server) (snapshot hcloud
 	// https://github.com/hetznercloud/hcloud-go/blob/f68e8530c9c3e94cd3a35b8d1d280335f124ebb8/hcloud/server.go#L658
 	opts := hcloud.Ptr(hcloud.ServerCreateImageOpts{
 		Type:        hcloud.ImageTypeSnapshot,
-		Description: hcloud.Ptr(fmt.Sprintf("hetzplay_%s_%d", server.Name, newSnapID)),
+		Description: hcloud.Ptr(fmt.Sprintf("hetzplay_%s_%d", serverName, newSnapID)),
 		Labels: map[string]string{
 			"hetzplay_id":          fmt.Sprintf("%d", newSnapID),
-			"hetzplay_server_name": server.Name,
+			"hetzplay_server_name": serverName,
 		},
 	})
 
 	// Create the image
 	// TODO: Figure out how Actions work, use to wait for this to complete
 	// TODO: Print snapshot progress
-	res, _, err := client.Server.CreateImage(context.Background(), server, opts)
-	if err != nil {
-		return
-	}
-
-	snapshot = *res.Image
-	return snapshot, err
+	p.log.Infof("taking snapshot of %s", serverName)
+	_, _, err = p.client.Server.CreateImage(context.Background(), server, opts)
+	return
 }
 
 // Cleans up old snapshots
-func PruneSnapshots(client *hcloud.Client, serverName string, backupSnapCount uint) (err error) {
-	// Always keep a single primary snapshot, regardless of how many backups the user requests
-	desiredSnapCount := int(backupSnapCount) + 1
-
+func (p HetznerProvider) pruneSnapshots(serverName string, desiredSnapCount int) (err error) {
 	// Get current snapshots
-	snapshots, err := ListSnapshots(client, serverName)
+	snapshots, err := p.listSnapshots(serverName)
 	if err != nil {
 		return
 	}
 
 	// Delete oldest snapshots until the desired count remains
-	// ListSnapshots ensures oldest snaps are at head of the slice
+	// listSnapshots ensures oldest snaps are at head of the slice
 	for i := 0; len(snapshots)-i > desiredSnapCount; i++ {
 		snapToDelete := snapshots[i]
-
-		_, err = client.Image.Delete(context.Background(), snapToDelete)
+		p.log.Info("deleting snapshot %s", snapToDelete.Description)
+		_, err = p.client.Image.Delete(context.Background(), snapToDelete)
 		if err != nil {
 			return
 		}
