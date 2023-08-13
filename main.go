@@ -31,7 +31,6 @@ var (
 
 var session *discordgo.Session
 var client *hcloud.Client
-var server *hcloud.Server
 var log = logging.MustGetLogger("log")
 
 var commands = []*discordgo.ApplicationCommand{
@@ -53,8 +52,6 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 }
 
 func init() {
-	// TODO: Validate args
-	flag.Parse()
 
 	// Set up logging
 	err := initializeLogging(*LogLevel)
@@ -62,6 +59,9 @@ func init() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
+	// TODO: Validate args
+	flag.Parse()
 
 	log.Debug("Initializing Discord bot")
 	session, err = discordgo.New("Bot " + *BotToken)
@@ -78,7 +78,7 @@ func init() {
 
 	// Add ready handler
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		log.Noticef("Logged in to Discord as %v#%v", s.State.User.Username, s.State.User.Discriminator)
+		log.Noticef("Logged in to Discord as %v#%v.", s.State.User.Username, s.State.User.Discriminator)
 	})
 
 	// Create Hetzner client
@@ -96,11 +96,11 @@ func main() {
 	}
 
 	// Check if first run
-	if len(snaps) == 0 {
+	if len(snaps) < 3 {
 		log.Notice("It looks like this is your first time running Hetzplay.")
 
 		// Verify server exists
-		server, _, err = client.Server.GetByName(context.Background(), *ServerName)
+		server, _, err := client.Server.GetByName(context.Background(), *ServerName)
 		if err != nil {
 			log.Fatalf("Failed to get server: %v", err)
 		}
@@ -109,7 +109,7 @@ func main() {
 		}
 
 		log.Notice("Taking an initial snapshot of your server")
-		snap, err := hetzner.TakeSnapshot(client, server, 0)
+		snap, err := hetzner.TakeSnapshot(client, server)
 		if err != nil {
 			log.Fatalf("Failed to create initial snapshot: %v", err)
 		}

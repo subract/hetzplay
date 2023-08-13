@@ -3,6 +3,7 @@ package hetzner
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )
@@ -29,7 +30,22 @@ func ListSnapshots(client *hcloud.Client, serverName string) (snapshots []*hclou
 }
 
 // Create a snapshot of a server.
-func TakeSnapshot(client *hcloud.Client, server *hcloud.Server, snapshot_id uint) (snapshot hcloud.Image, err error) {
+func TakeSnapshot(client *hcloud.Client, server *hcloud.Server) (snapshot hcloud.Image, err error) {
+	// Calculate ID of new snapshot
+	snapshots, err := ListSnapshots(client, server.Name)
+	if err != nil {
+		return
+	}
+	newSnapID := 0
+	if len(snapshots) > 0 {
+		latestSnap := snapshots[len(snapshots)-1]
+		newSnapID, err = strconv.Atoi(latestSnap.Labels["hetzplay_id"])
+		if err != nil {
+			return
+		}
+		newSnapID++
+	}
+
 	// Define snapshot options
 	//
 	// For whatever reason, Server. CreateImage is the _only_ function in the entire library
@@ -38,9 +54,9 @@ func TakeSnapshot(client *hcloud.Client, server *hcloud.Server, snapshot_id uint
 	// https://github.com/hetznercloud/hcloud-go/blob/f68e8530c9c3e94cd3a35b8d1d280335f124ebb8/hcloud/server.go#L658
 	opts := hcloud.Ptr(hcloud.ServerCreateImageOpts{
 		Type:        hcloud.ImageTypeSnapshot,
-		Description: hcloud.Ptr(fmt.Sprintf("hetzplay_%s_%d", server.Name, snapshot_id)),
+		Description: hcloud.Ptr(fmt.Sprintf("hetzplay_%s_%d", server.Name, newSnapID)),
 		Labels: map[string]string{
-			"hetzplay_id":          fmt.Sprintf("%d", snapshot_id),
+			"hetzplay_id":          fmt.Sprintf("%d", newSnapID),
 			"hetzplay_server_name": server.Name,
 		},
 	})
@@ -49,6 +65,9 @@ func TakeSnapshot(client *hcloud.Client, server *hcloud.Server, snapshot_id uint
 	// TODO: Figure out how Actions work, use to wait for this to complete
 	// TODO: Print snapshot progress
 	res, _, err := client.Server.CreateImage(context.Background(), server, opts)
+	if err != nil {
+		return
+	}
 
 	snapshot = *res.Image
 	return snapshot, err
