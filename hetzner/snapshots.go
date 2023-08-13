@@ -70,7 +70,6 @@ func PruneSnapshots(client *hcloud.Client, serverName string, backupSnapCount ui
 	for i := 0; len(snapshots)-i > desiredSnapCount; i++ {
 		snapToDelete := snapshots[i]
 
-		fmt.Printf("Pruning snapshot\"%s\"", snapToDelete.Description)
 		_, err = client.Image.Delete(context.Background(), snapToDelete)
 		if err != nil {
 			return

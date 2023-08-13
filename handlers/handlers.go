@@ -1,16 +1,19 @@
 package handlers
 
 import (
-	"fmt"
-	"log"
-
 	"github.com/bwmarrin/discordgo"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/op/go-logging"
 	"github.com/subract/hetzplay/hetzner"
 )
 
-func StartCommandHandler(s *discordgo.Session, i *discordgo.InteractionCreate, client *hcloud.Client, serverName string) {
+func StartCommandHandler(s *discordgo.Session,
+	i *discordgo.InteractionCreate,
+	client *hcloud.Client,
+	serverName string,
+	log *logging.Logger) {
 	// Reply to the user
+	log.Infof("Got start command")
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -21,11 +24,10 @@ func StartCommandHandler(s *discordgo.Session, i *discordgo.InteractionCreate, c
 	// List snapshots
 	snapshots, err := hetzner.ListSnapshots(client, serverName)
 	if err != nil {
-		log.Fatalf("error retrieving snapshots: %s\n", err)
+		log.Errorf("Error retrieving snapshots: %s\n", err)
 	}
 
 	for _, snapshot := range snapshots {
-		fmt.Printf("Found snapshot %s", snapshot.Description)
+		log.Infof("Found snapshot %s", snapshot.Description)
 	}
-	return
 }

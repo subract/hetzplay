@@ -4,13 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/op/go-logging"
 	"github.com/subract/hetzplay/handlers"
 	"github.com/subract/hetzplay/hetzner"
 )
@@ -24,13 +24,15 @@ var (
 	GuildID         = flag.String("guild", "", "Guild ID. If not passed - bot registers commands globally")
 	BotToken        = flag.String("discord_token", "", "Discord bot access token")
 	HetznerToken    = flag.String("hetzner_token", "", "Hetzner API token")
-	ServerName      = flag.String("server", "", "Hetzner server name. Must be unique within project")
+	ServerName      = flag.String("server", "", "Hetzner server name. Must be unique within project.")
 	BackupSnapCount = flag.Uint("backup_snaps", 1, "How many backup snapshots to keep")
+	LogLevel        = flag.String("log", "notice", "One of [critical error warning notice info debug]")
 )
 
 var session *discordgo.Session
 var client *hcloud.Client
 var server *hcloud.Server
+var log = logging.MustGetLogger("log")
 
 var commands = []*discordgo.ApplicationCommand{
 	{
@@ -42,7 +44,7 @@ var commands = []*discordgo.ApplicationCommand{
 // Define a closure to pass client/ServerName context to handler
 func startCommandWithContext() func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		handlers.StartCommandHandler(s, i, client, *ServerName)
+		handlers.StartCommandHandler(s, i, client, *ServerName, log)
 	}
 }
 
@@ -54,8 +56,14 @@ func init() {
 	// TODO: Validate args
 	flag.Parse()
 
-	// Authenticate the bot
-	var err error
+	// Set up logging
+	err := initializeLogging(*LogLevel)
+	if err != nil { // bad log level
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	log.Debug("Initializing Discord bot")
 	session, err = discordgo.New("Bot " + *BotToken)
 	if err != nil {
 		log.Fatalf("Invalid bot parameters: %v", err)
@@ -70,7 +78,7 @@ func init() {
 
 	// Add ready handler
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
+		log.Noticef("Logged in to Discord as %v#%v", s.State.User.Username, s.State.User.Discriminator)
 	})
 
 	// Create Hetzner client
@@ -78,19 +86,18 @@ func init() {
 }
 
 func main() {
-
+	// Get snaps
 	snaps, err := hetzner.ListSnapshots(client, *ServerName)
 	if err != nil {
 		log.Fatalf("Failed to list snapshots: %v", err)
 	}
-	// DEBUG: Print snaps
 	for _, snap := range snaps {
-		fmt.Println("Found snap", snap.Description, snap.Created, snap.ID)
+		log.Info("Found snap", snap.Description, snap.Created, snap.ID)
 	}
 
 	// Check if first run
 	if len(snaps) == 0 {
-		fmt.Println("It looks like this is your first time running Hetzplay.")
+		log.Notice("It looks like this is your first time running Hetzplay.")
 
 		// Verify server exists
 		server, _, err = client.Server.GetByName(context.Background(), *ServerName)
@@ -101,25 +108,24 @@ func main() {
 			log.Fatal("The server must be running the first time hetzplay is executed.")
 		}
 
-		fmt.Print("Taking an initial snapshot of your server... ")
-		_, err := hetzner.TakeSnapshot(client, server, 0)
+		log.Notice("Taking an initial snapshot of your server")
+		snap, err := hetzner.TakeSnapshot(client, server, 0)
 		if err != nil {
 			log.Fatalf("Failed to create initial snapshot: %v", err)
 		}
-		fmt.Println("done.")
+		log.Notice("Created snap", snap.Description)
 	}
 
 	// DEBUG: Prune snapshots
 	hetzner.PruneSnapshots(client, *ServerName, *BackupSnapCount)
 
-	// Connect the bot session
+	log.Debug("Opening bot session.")
 	err = session.Open()
 	if err != nil {
 		log.Fatalf("Cannot open the session: %v", err)
 	}
 
-	// Add commands to bot session
-	log.Println("Adding commands...")
+	log.Debug("Adding commands to bot session.")
 	for _, v := range commands {
 		_, err := session.ApplicationCommandCreate(session.State.User.ID, *GuildID, v)
 		if err != nil {
@@ -134,11 +140,12 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)    // stop on ctrl-C
 	signal.Notify(stop, syscall.SIGTERM) // stop on docker stop
-	log.Println("Press Ctrl+C to exit")
+	log.Notice("Press Ctrl+C to exit")
 	<-stop
 
 	// Remove all registered commands
-	log.Println("Removing commands...")
+	log.Notice("Shutting down.")
+	log.Debug("Removing registered bot commands")
 
 	registeredCommands, err := session.ApplicationCommands(session.State.User.ID, *GuildID)
 	if err != nil {
@@ -148,9 +155,7 @@ func main() {
 	for _, v := range registeredCommands {
 		err := session.ApplicationCommandDelete(session.State.User.ID, *GuildID, v.ID)
 		if err != nil {
-			log.Panicf("Cannot delete '%v' command: %v", v.Name, err)
+			log.Fatalf("Cannot delete '%v' command: %v", v.Name, err)
 		}
 	}
-
-	log.Println("Gracefully shutting down.")
 }
