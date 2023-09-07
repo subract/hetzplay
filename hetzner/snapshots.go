@@ -33,6 +33,16 @@ func (p HetznerProvider) listSnapshots(serverName string) (snapshots []*hcloud.I
 	return
 }
 
+// Checks whether any hetzplay-managed snapshots exist
+func (p HetznerProvider) doesManagedSnapshotExist(serverName string) (exists bool, err error) {
+	snaps, err := p.listSnapshots(serverName)
+	if err != nil {
+		return false, err
+	}
+	exists = len(snaps) > 0
+	return
+}
+
 // Create a snapshot of a server.
 func (p HetznerProvider) takeSnapshot(serverName string) (err error) {
 	// Get the server

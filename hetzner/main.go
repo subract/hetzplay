@@ -51,7 +51,7 @@ func NewServerManager(serverName string,
 		exists with the cloud provider`, serverName)
 	}
 
-	// If a snapshot does not exist, but the server does, take an initial snapshot
+	// If a snapshot doesn't exist, but the server does, take an initial snapshot
 	m.provider.takeSnapshot(serverName)
 	return
 }
